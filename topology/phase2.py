@@ -13,7 +13,7 @@ def topology():
     net = Mininet(controller=RemoteController, link=TCLink, switch=OVSKernelSwitch)
 
     # Begin controller
-    c1 = net.addController('c1', controller=RemoteController, ip='172.17.0.2', port=6633, mac='02:42:ac:11:00:02')
+    c1 = net.addController('c1', controller=RemoteController, ip='4.233.148.76', port=6633, mac='02:42:ac:11:00:02')
 
     # Add switches
     print("*** Creating Switches")
