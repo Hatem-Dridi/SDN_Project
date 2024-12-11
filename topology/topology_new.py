@@ -10,7 +10,7 @@ from mininet.log import setLogLevel
 from mininet.link import Link, TCLink
 
 def topology():
-    "Create a network."
+    print("Create a network.")
     net = Mininet( controller=RemoteController, link=TCLink, switch=OVSKernelSwitch )
 
     print "*** Creating nodes"
@@ -38,7 +38,7 @@ def topology():
     ds10 = net.addHost( 'ds10', ip = '100.0.0.22/24')
     insp11 = net.addHost( 'insp11',ip = '100.0.0.30/24')
 
-    print "*** Creating links"
+    print ("*** Creating links")
     net.addLink(s1,h1)
     net.addLink(s1,h2)
     net.addLink(s1,fw10)
@@ -62,7 +62,7 @@ def topology():
     net.addLink(s5,n9)
     net.addLink(id8,insp11)
 
-    print "*** Starting network"
+    print("*** Starting network")
     net.build()
     s1.start( [c1] )
     s2.start( [c1] )
@@ -77,10 +77,10 @@ def topology():
     fw11.start( [c1] )
     print ("Done")
 
-    print "*** Running CLI"
+    print("*** Running CLI")
     CLI( net )
 
-    print "*** Stopping network"
+    print("*** Stopping network")
     net.stop()
 
 if __name__ == '__main__':
