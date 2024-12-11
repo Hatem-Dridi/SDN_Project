@@ -1,14 +1,16 @@
-import socket, glob, json
+import socket
+import glob
+import json
 
+# DNS Server Configuration
 port = 53
 ip = '100.0.0.20'
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((ip, port))
 
-
+# Load DNS zones from files
 def load_zones():
-
     jsonzone = {}
     zonefiles = glob.glob('zones/*.zone')
 
@@ -21,73 +23,60 @@ def load_zones():
 
 zonedata = load_zones()
 
+# Parse DNS flags from the request
 def getflags(flags):
+    byte1 = flags[0]
+    byte2 = flags[1]
 
-    byte1 = bytes(flags[:1])
-    byte2 = bytes(flags[1:2])
+    QR = '1'  # This is a response
+    OPCODE = ''.join([str((byte1 >> bit) & 1) for bit in range(1, 5)])
+    AA = '1'  # Authoritative Answer
+    TC = '0'  # Truncation
+    RD = '0'  # Recursion Desired
 
-    rflags = ''
+    RA = '0'  # Recursion Available
+    Z = '000' # Reserved
+    RCODE = '0000' # Response Code
 
-    QR = '1'
+    return int(QR + OPCODE + AA + TC + RD, 2).to_bytes(1, byteorder='big') + int(RA + Z + RCODE, 2).to_bytes(1, byteorder='big')
 
-    OPCODE = ''
-    for bit in range(1,5):
-        OPCODE += str(ord(byte1)&(1<<bit))
-
-    AA = '1'
-
-    TC = '0'
-
-    RD = '0'
-
-    # Byte 2
-
-    RA = '0'
-
-    Z = '000'
-
-    RCODE = '0000'
-
-    return int(QR+OPCODE+AA+TC+RD, 2).to_bytes(1, byteorder='big')+int(RA+Z+RCODE, 2).to_bytes(1, byteorder='big')
-
+# Extract the question domain from the DNS query
 def getquestiondomain(data):
-
     state = 0
     expectedlength = 0
     domainstring = ''
     domainparts = []
-    x = 0
-    y = 0
+    offset = 0
+
     for byte in data:
         if state == 1:
             if byte != 0:
                 domainstring += chr(byte)
-            x += 1
-            if x == expectedlength:
+            offset += 1
+            if offset == expectedlength:
                 domainparts.append(domainstring)
                 domainstring = ''
                 state = 0
-                x = 0
+                offset = 0
             if byte == 0:
                 domainparts.append(domainstring)
                 break
         else:
             state = 1
             expectedlength = byte
-        y += 1
 
-    questiontype = data[y:y+2]
+    questiontype = data[offset + 1:offset + 3]
+    return domainparts, questiontype
 
-    return (domainparts, questiontype)
-
+# Get zone information for a domain
 def getzone(domain):
     global zonedata
-
     zone_name = '.'.join(domain)
-    
-    return zonedata[zone_name]
+    if zone_name in zonedata:
+        return zonedata[zone_name]
+    return None
 
-
+# Retrieve records for a DNS query
 def getrecs(data):
     domain, questiontype = getquestiondomain(data)
     qt = ''
@@ -95,46 +84,44 @@ def getrecs(data):
         qt = 'a'
 
     zone = getzone(domain)
+    if zone and qt in zone:
+        return zone[qt], qt, domain
 
-    return (zone[qt], qt, domain)
+    return [], qt, domain
 
+# Build the DNS question section
 def buildquestion(domainname, rectype):
     qbytes = b''
 
     for part in domainname:
         length = len(part)
         qbytes += bytes([length])
-
-        for char in part:
-            qbytes += ord(char).to_bytes(1, byteorder='big')
+        qbytes += part.encode('utf-8')
 
     if rectype == 'a':
         qbytes += (1).to_bytes(2, byteorder='big')
 
     qbytes += (1).to_bytes(2, byteorder='big')
-
     return qbytes
 
+# Convert a record to bytes for the DNS response
 def rectobytes(domainname, rectype, recttl, recval):
-
     rbytes = b'\xc0\x0c'
 
     if rectype == 'a':
-        rbytes = rbytes + bytes([0]) + bytes([1])
+        rbytes += (0).to_bytes(1, byteorder='big') + (1).to_bytes(1, byteorder='big')
 
-    rbytes = rbytes + bytes([0]) + bytes([1])
-
+    rbytes += (0).to_bytes(1, byteorder='big') + (1).to_bytes(1, byteorder='big')
     rbytes += int(recttl).to_bytes(4, byteorder='big')
 
     if rectype == 'a':
-        rbytes = rbytes + bytes([0]) + bytes([4])
+        rbytes += (4).to_bytes(2, byteorder='big')
+        rbytes += bytes(map(int, recval.split('.')))
 
-        for part in recval.split('.'):
-            rbytes += bytes([int(part)])
     return rbytes
 
+# Build the DNS response
 def buildresponse(data):
-
     # Transaction ID
     TransactionID = data[:2]
 
@@ -144,37 +131,32 @@ def buildresponse(data):
     # Question Count
     QDCOUNT = b'\x00\x01'
 
+    # Get answer records
+    records, rectype, domainname = getrecs(data[12:])
+
     # Answer Count
-    ANCOUNT = len(getrecs(data[12:])[0]).to_bytes(2, byteorder='big')
+    ANCOUNT = len(records).to_bytes(2, byteorder='big')
 
-    # Nameserver Count
+    # Nameserver and Additional Counts
     NSCOUNT = (0).to_bytes(2, byteorder='big')
-
-    # Additonal Count
     ARCOUNT = (0).to_bytes(2, byteorder='big')
 
-    dnsheader = TransactionID+Flags+QDCOUNT+ANCOUNT+NSCOUNT+ARCOUNT
+    dnsheader = TransactionID + Flags + QDCOUNT + ANCOUNT + NSCOUNT + ARCOUNT
 
     # Create DNS body
     dnsbody = b''
-
-    # Get answer for query
-    records, rectype, domainname = getrecs(data[12:])
-
     dnsquestion = buildquestion(domainname, rectype)
-    
 
-    
     for record in records:
         dnsbody += rectobytes(domainname, rectype, record["ttl"], record["value"])
 
-    
     return dnsheader + dnsquestion + dnsbody
 
-
-while 1:
+# Main DNS server loop
+while True:
     data, addr = sock.recvfrom(512)
-    r = buildresponse(data)
-
-    sock.sendto(r, addr)
-	
+    try:
+        response = buildresponse(data)
+        sock.sendto(response, addr)
+    except Exception as e:
+        print(f"Error handling request: {e}")
