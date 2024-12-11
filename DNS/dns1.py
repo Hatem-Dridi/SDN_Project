@@ -4,7 +4,7 @@ import json
 
 # DNS Server Configuration
 port = 53
-ip = '100.0.0.20'
+ip = '4.233.148.76'
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 sock.bind((ip, port))
